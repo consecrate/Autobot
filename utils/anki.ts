@@ -21,6 +21,12 @@ export async function invoke<T>(action: string, params?: Record<string, unknown>
 
 export const getDeckNames = () => invoke<string[]>('deckNames');
 
+export const canAddNotes = (notes: Array<{
+    deckName: string;
+    modelName: string;
+    fields: { Front: string; Back: string };
+}>) => invoke<boolean[]>('canAddNotes', { notes });
+
 export const addNote = (
     deckName: string,
     frontImg: string,
@@ -38,3 +44,24 @@ export const addNote = (
             tags,
         },
     });
+
+export const addTextNote = (
+    deckName: string,
+    front: string,
+    back: string,
+    tags: string[]
+) =>
+    invoke<number>('addNote', {
+        note: {
+            deckName,
+            modelName: 'Basic',
+            fields: { Front: front, Back: back },
+            tags,
+        },
+    });
+
+export const findNotes = (query: string) =>
+    invoke<number[]>('findNotes', { query });
+
+export const deleteNotes = (notes: number[]) =>
+    invoke<null>('deleteNotes', { notes });
