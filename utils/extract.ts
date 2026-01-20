@@ -13,20 +13,20 @@ export async function addWhiteBackground(base64Data: string): Promise<string> {
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
             canvas.height = img.height;
-            
+
             const ctx = canvas.getContext('2d');
             if (!ctx) {
                 reject(new Error('Failed to get canvas context'));
                 return;
             }
-            
+
             // Draw white background first
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
+
             // Draw the image on top
             ctx.drawImage(img, 0, 0);
-            
+
             // Convert back to base64 (PNG format to preserve quality)
             const dataUrl = canvas.toDataURL('image/png');
             const newBase64 = dataUrl.split(',')[1];
@@ -45,14 +45,14 @@ export async function fetchImageAsBase64(src: string): Promise<string> {
     // Resolve relative URLs
     const url = new URL(src, window.location.href).href;
     console.log(`[Autobot] Fetching image: ${url}`);
-    
+
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
     }
-    
+
     const blob = await response.blob();
-    
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -124,105 +124,80 @@ export interface ExtractResult {
  */
 export function extractContent(el: HTMLElement, options: ExtractOptions = {}): ExtractResult {
     injectTexExtractor();
-
-    // Trigger TeX extraction for any new containers
     document.dispatchEvent(new CustomEvent('autobot-extract-tex'));
 
     const { labelFormat = 'paren' } = options;
     const isChoicesTable = el.classList?.contains('questionWidget-choicesTable');
 
-    const result: string[] = [];
+    const parts: string[] = [];
     const images: ExtractResult['images'] = [];
     let mathCount = 0;
 
     function walk(node: Node) {
         if (node.nodeType === Node.TEXT_NODE) {
             const text = node.textContent?.trim();
-            if (text) result.push(text);
+            if (text) parts.push(text);
             return;
         }
 
         if (!(node instanceof HTMLElement)) return;
 
-        // Special handling for choices table rows
+        // Choices table rows: label + content + newline
         if (isChoicesTable && node.tagName === 'TR') {
             const cells = Array.from(node.querySelectorAll('td'));
             if (cells.length >= 2) {
                 const label = cells[0].textContent?.trim() || '';
-                // Format label based on user preference
-                let formattedLabel: string;
-                switch (labelFormat) {
-                    case 'dot': formattedLabel = `${label}.`; break;
-                    case 'bracket': formattedLabel = `(${label})`; break;
-                    default: formattedLabel = `${label})`; break;
-                }
-                result.push(formattedLabel + ' ');
-                // Process remaining cells (the content) inline
-                for (let i = 1; i < cells.length; i++) {
-                    walk(cells[i]);
-                }
-                result.push('<br>');  // Single line break after each option
-                return;  // Don't process children normally
+                const formatted = labelFormat === 'dot' ? `${label}.`
+                    : labelFormat === 'bracket' ? `(${label})`
+                        : `${label})`;
+                parts.push(formatted + ' ');
+                for (let i = 1; i < cells.length; i++) walk(cells[i]);
+                parts.push('\n');
+                return;
             }
         }
 
-        // Handle <img> elements - extract src and add placeholder
+        // Images: placeholder for later replacement
         if (node.tagName === 'IMG') {
             const src = node.getAttribute('src');
             if (src) {
                 const placeholder = `{{IMG_${images.length}}}`;
                 images.push({ placeholder, src });
-                result.push(placeholder);
-                console.log(`[Autobot] Found image in content: ${src} -> ${placeholder}`);
+                parts.push(placeholder);
             }
             return;
         }
 
-        // Handle MathJax containers
+        // MathJax: extract TeX source
         if (node.tagName.toLowerCase() === 'mjx-container') {
             const tex = getTexSource(node);
             if (tex) {
                 mathCount++;
                 const isBlock = node.getAttribute('display') === 'block';
-                if (isBlock) {
-                    result.push(`<br><br>\\[${tex}\\]<br><br>`);
-                } else {
-                    result.push(`\\(${tex}\\)`);
-                }
+                parts.push(isBlock ? `\n\n\\[${tex}\\]\n\n` : `\\(${tex}\\)`);
             } else {
-                // Fallback to text content if TeX source unavailable
-                result.push(node.textContent || '');
+                parts.push(node.textContent || '');
             }
             return;
         }
 
-        // Handle block elements
+        // Block elements: process children, then add paragraph break
         const isBlock = ['P', 'DIV', 'BR', 'LI', 'H1', 'H2', 'H3', 'H4'].includes(node.tagName);
-        if (isBlock && result.length > 0 && !result[result.length - 1].endsWith('<br><br>')) {
-            result.push('<br><br>');
-        }
-
-        for (const child of Array.from(node.childNodes)) {
-            walk(child);
-        }
-
-        if (isBlock && result.length > 0 && !result[result.length - 1].endsWith('<br><br>')) {
-            result.push('<br><br>');
-        }
+        for (const child of Array.from(node.childNodes)) walk(child);
+        if (isBlock && parts.length > 0) parts.push('\n\n');
     }
 
     walk(el);
 
-    const content = result.join(' ')
-        .replace(/\s+/g, ' ')
-        .replace(/ ?<br><br> ?/g, '<br><br>')
-        .replace(/ ?<br> ?/g, '<br>')
-        .replace(/(<br><br>)+/g, '<br><br>')   // Collapse multiple double breaks
-        .replace(/(<br>)+/g, '<br>')           // Collapse multiple single breaks
+    // Single-pass cleanup: normalize whitespace, convert newlines to <br>
+    const content = parts.join(' ')
+        .replace(/[ \t]+/g, ' ')          // Collapse horizontal whitespace
+        .replace(/ ?\n ?/g, '\n')         // Clean spaces around newlines
+        .replace(/\n{3,}/g, '\n\n')       // Max 2 consecutive newlines
+        .replace(/\n\n/g, '<br><br>')     // Paragraph breaks
+        .replace(/\n/g, '<br>')           // Line breaks
         .trim();
 
-    console.log(`[Autobot] Extracted: ${mathCount} math expression(s), ${images.length} image(s), ${content.length} chars`);
-    console.log(`[Autobot] Preview: ${content.slice(0, 100)}${content.length > 100 ? '...' : ''}`);
-
+    console.log(`[Autobot] Extracted: ${mathCount} math, ${images.length} img, ${content.length} chars`);
     return { content, images };
 }

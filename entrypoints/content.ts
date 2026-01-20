@@ -133,35 +133,35 @@ async function makeStepNameClickable(step: Element) {
         let frontText = marker;
         const timestamp = Date.now();
         let imageCounter = 0;
-        
+
         // Helper function to process extracted content with images
         const processExtractedContent = async (result: ExtractResult): Promise<string> => {
           let processedContent = result.content;
-          
+
           // Process each image: fetch, optionally fix for dark mode, store, and replace placeholder
           for (const img of result.images) {
             try {
               let base64Data = await fetchImageAsBase64(img.src);
-              
+
               // Add white background if fix dark mode is enabled
               if (fixDarkMode) {
                 base64Data = await addWhiteBackground(base64Data);
               }
-              
+
               const filename = `autobot-${timestamp}-img${imageCounter++}.png`;
-              
+
               await browser.runtime.sendMessage({
                 action: "storeMediaFile",
                 filename,
                 data: base64Data,
               });
-              
+
               // Replace placeholder with actual img tag
               processedContent = processedContent.replace(
                 img.placeholder,
                 `<img src="${filename}">`
               );
-              
+
               console.log(`[Autobot] Stored option image: ${img.src} -> ${filename}`);
             } catch (e) {
               console.error(`[Autobot] Failed to process image ${img.src}:`, e);
@@ -169,42 +169,42 @@ async function makeStepNameClickable(step: Element) {
               processedContent = processedContent.replace(img.placeholder, '[Image]');
             }
           }
-          
+
           return processedContent;
         };
-        
+
         // Add graphic as image if present
         if (graphic) {
           const graphicImg = await captureElement(graphic);
-          
+
           // Store graphic as media file
           const graphicFilename = `autobot-${timestamp}-graphic.png`;
           let graphicData = graphicImg.replace(/^data:image\/png;base64,/, '');
-          
+
           // Add white background if fix dark mode is enabled
           if (fixDarkMode) {
             graphicData = await addWhiteBackground(graphicData);
           }
-          
+
           await browser.runtime.sendMessage({
             action: "storeMediaFile",
             filename: graphicFilename,
             data: graphicData,
           });
-          
+
           frontText += `<img src="${graphicFilename}"><br>`;
         }
-        
+
         // Add front text
         const frontResult = extractContent(front as HTMLElement);
         frontText += await processExtractedContent(frontResult);
-        
+
         // Add choices if enabled
         if (includeChoices && choices) {
           const choicesResult = extractContent(choices as HTMLElement, { labelFormat });
-          frontText += '<br><br>' + await processExtractedContent(choicesResult);
+          frontText += await processExtractedContent(choicesResult);
         }
-        
+
         const backResult = extractContent(back as HTMLElement);
         const backText = await processExtractedContent(backResult);
 
@@ -219,7 +219,7 @@ async function makeStepNameClickable(step: Element) {
         // Image mode: capture front elements individually and composite them
         const timestamp = Date.now();
         let frontHtml = marker; // Start with marker for duplicate detection
-        
+
         // Helper to capture an element, store it, and return an img tag
         const captureAndStore = async (element: HTMLElement, label: string): Promise<string> => {
           const dataUrl = await captureElement(element);
@@ -246,12 +246,12 @@ async function makeStepNameClickable(step: Element) {
           // Temporarily remove selection styling from circles
           const circles = choices.querySelectorAll('.questionWidget-choiceLetterCircle');
           const savedStyles: (string | null)[] = [];
-          
+
           circles.forEach((circle, idx) => {
             savedStyles[idx] = circle.getAttribute('style');
             circle.removeAttribute('style');
           });
-          
+
           try {
             frontHtml += '<br>' + await captureAndStore(choices, 'choices');
           } finally {
@@ -327,7 +327,7 @@ export default defineContentScript({
           // New step elements
           if (node.matches?.(SELECTORS.step)) {
             stepsToCheck.add(node);
-          } 
+          }
           // Steps nested inside larger added DOM chunks
           else {
             node.querySelectorAll?.(SELECTORS.step)?.forEach(s => stepsToCheck.add(s));
