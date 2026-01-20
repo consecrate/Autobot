@@ -9,6 +9,8 @@ import {
 
 const DECK_KEY = "autobot_deck";
 const MODE_KEY = "autobot_mode";
+const CHOICES_KEY = "autobot_include_choices";
+const LABEL_FORMAT_KEY = "autobot_label_format";
 const DEFAULT_DECK = "MathAcademy";
 
 async function getDeck(): Promise<string> {
@@ -18,7 +20,19 @@ async function getDeck(): Promise<string> {
 
 async function getMode(): Promise<'image' | 'text'> {
   const result = await browser.storage.local.get(MODE_KEY);
-  return (result[MODE_KEY] as 'image' | 'text') || 'image';
+  return (result[MODE_KEY] as 'image' | 'text') || 'text';
+}
+
+async function getIncludeChoices(): Promise<boolean> {
+  const result = await browser.storage.local.get(CHOICES_KEY);
+  return (result[CHOICES_KEY] as boolean) || false;
+}
+
+async function getLabelFormat(): Promise<'paren' | 'dot' | 'bracket'> {
+  const result = await browser.storage.local.get(LABEL_FORMAT_KEY);
+  const value = result[LABEL_FORMAT_KEY] as string;
+  if (value === 'dot' || value === 'bracket') return value;
+  return 'paren';
 }
 
 function getStepName(step: Element): string {
@@ -45,27 +59,20 @@ async function makeStepNameClickable(step: Element) {
     stepNameEl.title = isAdded ? "Click to remove from Anki" : "Click to add to Anki";
   };
 
-  // Check if already added on load
+  // Check if already added on load (search by marker which is stable regardless of settings)
   const deck = await getDeck();
   const lesson = getLessonName().toLowerCase().replace(/\s+/g, "-");
   const stepName = getStepName(step);
   const marker = `<!-- autobot:${lesson}:${stepName} -->`;
 
-  const mode = await getMode();
-  if (mode === 'text') {
-    const { front, back } = getFrontBackElements(step, getStepType(step)!);
-    if (front && back) {
-      const frontText = marker + extractContent(front as HTMLElement);
-      const backText = extractContent(back as HTMLElement);
-      const canAdd = await browser.runtime.sendMessage({
-        action: "canAddNotes",
-        notes: [{ deckName: deck, modelName: "Basic", fields: { Front: frontText, Back: backText } }],
-      });
-      if (!canAdd[0]) {
-        isAdded = true;
-        updateStatus("Added");
-      }
-    }
+  // Check if note with this marker already exists
+  const existingNotes = await browser.runtime.sendMessage({
+    action: "findNotes",
+    query: `"Front:${marker}"`,
+  });
+  if (existingNotes?.length) {
+    isAdded = true;
+    updateStatus("Added");
   }
 
   if (!isAdded) {
@@ -79,20 +86,13 @@ async function makeStepNameClickable(step: Element) {
     if (!type) return;
 
     if (isAdded) {
-      // Remove from Anki
+      // Remove from Anki - search by marker to find the note regardless of include-choices setting
       updateStatus("Removing...");
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       try {
-        const { front, back } = getFrontBackElements(step, type);
-        if (!front || !back) throw new Error("Elements not found");
-
-        const frontText = marker + extractContent(front as HTMLElement);
-        const backText = extractContent(back as HTMLElement);
-
-        // Find and delete the note
         const noteIds = await browser.runtime.sendMessage({
           action: "findNotes",
-          query: `"Front:${frontText.slice(0, 50)}"`,
+          query: `"Front:${marker}"`,
         });
         if (noteIds?.length) {
           await browser.runtime.sendMessage({
@@ -110,15 +110,22 @@ async function makeStepNameClickable(step: Element) {
       return;
     }
 
-    // Add to Anki
+    // Add to Anki - fetch current settings at click time
+    const mode = await getMode();
+    const includeChoices = await getIncludeChoices();
+    const labelFormat = await getLabelFormat();
+
     updateStatus("Adding...");
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try {
-      const { front, back } = getFrontBackElements(step, type);
+      const { front, back, choices } = getFrontBackElements(step, type);
       if (!front || !back) throw new Error("Elements not found");
 
       if (mode === 'text') {
-        const frontText = marker + extractContent(front as HTMLElement);
+        let frontText = marker + extractContent(front as HTMLElement);
+        if (includeChoices && choices) {
+          frontText += '<br><br>' + extractContent(choices as HTMLElement, { labelFormat });
+        }
         const backText = extractContent(back as HTMLElement);
 
         await browser.runtime.sendMessage({
@@ -129,10 +136,24 @@ async function makeStepNameClickable(step: Element) {
           tags: ["mathacademy", lesson],
         });
       } else {
-        const [frontImg, backImg] = await Promise.all([
-          captureElement(front),
-          captureElement(back),
-        ]);
+        // Image mode: capture front (optionally with choices) and back
+        let frontImg: string;
+        if (includeChoices && choices) {
+          // Create a temporary wrapper to capture both elements together
+          const wrapper = document.createElement('div');
+          wrapper.style.cssText = 'position: absolute; left: -9999px; background: white;';
+          wrapper.appendChild(front.cloneNode(true));
+          wrapper.appendChild(choices.cloneNode(true));
+          document.body.appendChild(wrapper);
+          try {
+            frontImg = await captureElement(wrapper);
+          } finally {
+            document.body.removeChild(wrapper);
+          }
+        } else {
+          frontImg = await captureElement(front);
+        }
+        const backImg = await captureElement(back);
 
         await browser.runtime.sendMessage({
           action: "addNote",
@@ -188,14 +209,21 @@ export default defineContentScript({
       const stepsToCheck = new Set<Element>();
 
       for (const m of mutations) {
-        const targetStep = (m.target as Element).closest?.(SELECTORS.step);
-        if (targetStep) stepsToCheck.add(targetStep);
-
         for (const node of Array.from(m.addedNodes)) {
           if (!(node instanceof Element)) continue;
-          if (node.matches?.(SELECTORS.step)) stepsToCheck.add(node);
+          // New step elements
+          if (node.matches?.(SELECTORS.step)) {
+            stepsToCheck.add(node);
+          } 
+          // Steps nested inside larger added DOM chunks
+          else {
+            node.querySelectorAll?.(SELECTORS.step)?.forEach(s => stepsToCheck.add(s));
+          }
+          // Content added inside an unprocessed step (e.g., MathJax loading)
           const parentStep = node.closest?.(SELECTORS.step);
-          if (parentStep) stepsToCheck.add(parentStep);
+          if (parentStep && !parentStep.querySelector('[data-autobot-enabled]')) {
+            stepsToCheck.add(parentStep);
+          }
         }
       }
 

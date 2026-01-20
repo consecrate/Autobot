@@ -34,14 +34,24 @@ function getTexSource(container: HTMLElement): string | null {
 }
 
 /**
+ * Options for extractContent function.
+ */
+export interface ExtractOptions {
+    labelFormat?: 'paren' | 'dot' | 'bracket';  // a) | a. | (a)
+}
+
+/**
  * Extracts text and math from a DOM element.
  * Injects script to extract TeX from MathJax.
  */
-export function extractContent(el: HTMLElement): string {
+export function extractContent(el: HTMLElement, options: ExtractOptions = {}): string {
     injectTexExtractor();
 
     // Trigger TeX extraction for any new containers
     document.dispatchEvent(new CustomEvent('autobot-extract-tex'));
+
+    const { labelFormat = 'paren' } = options;
+    const isChoicesTable = el.classList?.contains('questionWidget-choicesTable');
 
     const result: string[] = [];
     let mathCount = 0;
@@ -54,6 +64,28 @@ export function extractContent(el: HTMLElement): string {
         }
 
         if (!(node instanceof HTMLElement)) return;
+
+        // Special handling for choices table rows
+        if (isChoicesTable && node.tagName === 'TR') {
+            const cells = Array.from(node.querySelectorAll('td'));
+            if (cells.length >= 2) {
+                const label = cells[0].textContent?.trim() || '';
+                // Format label based on user preference
+                let formattedLabel: string;
+                switch (labelFormat) {
+                    case 'dot': formattedLabel = `${label}.`; break;
+                    case 'bracket': formattedLabel = `(${label})`; break;
+                    default: formattedLabel = `${label})`; break;
+                }
+                result.push(formattedLabel + ' ');
+                // Process remaining cells (the content) inline
+                for (let i = 1; i < cells.length; i++) {
+                    walk(cells[i]);
+                }
+                result.push('<br>');  // Single line break after each option
+                return;  // Don't process children normally
+            }
+        }
 
         // Handle MathJax containers
         if (node.tagName.toLowerCase() === 'mjx-container') {
@@ -93,7 +125,9 @@ export function extractContent(el: HTMLElement): string {
     const content = result.join(' ')
         .replace(/\s+/g, ' ')
         .replace(/ ?<br><br> ?/g, '<br><br>')
-        .replace(/(<br><br>)+/g, '<br><br>')   // Collapse multiple breaks
+        .replace(/ ?<br> ?/g, '<br>')
+        .replace(/(<br><br>)+/g, '<br><br>')   // Collapse multiple double breaks
+        .replace(/(<br>)+/g, '<br>')           // Collapse multiple single breaks
         .trim();
 
     console.log(`[Autobot] Extracted: ${mathCount} math expression(s), ${content.length} chars`);

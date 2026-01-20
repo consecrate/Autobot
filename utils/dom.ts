@@ -25,15 +25,17 @@ export function getFrontBackElements(step: Element, type: StepType) {
         return {
             front: step.querySelector<HTMLElement>(SELECTORS.exampleFront),
             back: step.querySelector<HTMLElement>(SELECTORS.exampleBack),
+            choices: null,
         };
     }
     if (type === 'question') {
         return {
             front: step.querySelector<HTMLElement>(SELECTORS.questionFront),
             back: step.querySelector<HTMLElement>(SELECTORS.questionBack),
+            choices: step.querySelector<HTMLElement>(SELECTORS.questionChoices),
         };
     }
-    return { front: null, back: null };
+    return { front: null, back: null, choices: null };
 }
 
 export function getLessonName(): string {

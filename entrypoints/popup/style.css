@@ -6,4 +6,30 @@ body {
 h1 { font-size: 16px; margin: 0 0 12px; }
 label { font-size: 12px; }
 select { width: 100%; margin-top: 4px; }
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+.checkbox-label input { margin: 0; }
+.sub-option {
+  margin-left: 22px;
+  margin-top: 6px;
+  display: none;
+}
+.sub-option.visible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sub-option label {
+  font-size: 11px;
+  margin: 0;
+}
+.sub-option select {
+  width: auto;
+  margin: 0;
+}
 #status { font-size: 11px; color: #666; margin-top: 8px; }
