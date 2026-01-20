@@ -1,5 +1,5 @@
 import { captureElement } from "@/utils/capture";
-import { extractContent, injectTexExtractor } from "@/utils/extract";
+import { extractContent, injectTexExtractor, fetchImageAsBase64, addWhiteBackground, ExtractResult } from "@/utils/extract";
 import {
   SELECTORS,
   getStepType,
@@ -11,6 +11,7 @@ const DECK_KEY = "autobot_deck";
 const MODE_KEY = "autobot_mode";
 const CHOICES_KEY = "autobot_include_choices";
 const LABEL_FORMAT_KEY = "autobot_label_format";
+const FIX_DARK_MODE_KEY = "autobot_fix_dark_mode";
 const DEFAULT_DECK = "MathAcademy";
 
 async function getDeck(): Promise<string> {
@@ -33,6 +34,12 @@ async function getLabelFormat(): Promise<'paren' | 'dot' | 'bracket'> {
   const value = result[LABEL_FORMAT_KEY] as string;
   if (value === 'dot' || value === 'bracket') return value;
   return 'paren';
+}
+
+async function getFixDarkMode(): Promise<boolean> {
+  const result = await browser.storage.local.get(FIX_DARK_MODE_KEY);
+  // Default to true if not set
+  return result[FIX_DARK_MODE_KEY] !== false;
 }
 
 function getStepName(step: Element): string {
@@ -60,7 +67,6 @@ async function makeStepNameClickable(step: Element) {
   };
 
   // Check if already added on load (search by marker which is stable regardless of settings)
-  const deck = await getDeck();
   const lesson = getLessonName().toLowerCase().replace(/\s+/g, "-");
   const stepName = getStepName(step);
   const marker = `<!-- autobot:${lesson}:${stepName} -->`;
@@ -111,22 +117,96 @@ async function makeStepNameClickable(step: Element) {
     }
 
     // Add to Anki - fetch current settings at click time
+    const deck = await getDeck();
     const mode = await getMode();
     const includeChoices = await getIncludeChoices();
     const labelFormat = await getLabelFormat();
+    const fixDarkMode = await getFixDarkMode();
 
     updateStatus("Adding...");
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     try {
-      const { front, back, choices } = getFrontBackElements(step, type);
+      const { front, back, choices, graphic } = getFrontBackElements(step, type);
       if (!front || !back) throw new Error("Elements not found");
 
       if (mode === 'text') {
-        let frontText = marker + extractContent(front as HTMLElement);
-        if (includeChoices && choices) {
-          frontText += '<br><br>' + extractContent(choices as HTMLElement, { labelFormat });
+        let frontText = marker;
+        const timestamp = Date.now();
+        let imageCounter = 0;
+        
+        // Helper function to process extracted content with images
+        const processExtractedContent = async (result: ExtractResult): Promise<string> => {
+          let processedContent = result.content;
+          
+          // Process each image: fetch, optionally fix for dark mode, store, and replace placeholder
+          for (const img of result.images) {
+            try {
+              let base64Data = await fetchImageAsBase64(img.src);
+              
+              // Add white background if fix dark mode is enabled
+              if (fixDarkMode) {
+                base64Data = await addWhiteBackground(base64Data);
+              }
+              
+              const filename = `autobot-${timestamp}-img${imageCounter++}.png`;
+              
+              await browser.runtime.sendMessage({
+                action: "storeMediaFile",
+                filename,
+                data: base64Data,
+              });
+              
+              // Replace placeholder with actual img tag
+              processedContent = processedContent.replace(
+                img.placeholder,
+                `<img src="${filename}">`
+              );
+              
+              console.log(`[Autobot] Stored option image: ${img.src} -> ${filename}`);
+            } catch (e) {
+              console.error(`[Autobot] Failed to process image ${img.src}:`, e);
+              // Remove the placeholder if we couldn't process the image
+              processedContent = processedContent.replace(img.placeholder, '[Image]');
+            }
+          }
+          
+          return processedContent;
+        };
+        
+        // Add graphic as image if present
+        if (graphic) {
+          const graphicImg = await captureElement(graphic);
+          
+          // Store graphic as media file
+          const graphicFilename = `autobot-${timestamp}-graphic.png`;
+          let graphicData = graphicImg.replace(/^data:image\/png;base64,/, '');
+          
+          // Add white background if fix dark mode is enabled
+          if (fixDarkMode) {
+            graphicData = await addWhiteBackground(graphicData);
+          }
+          
+          await browser.runtime.sendMessage({
+            action: "storeMediaFile",
+            filename: graphicFilename,
+            data: graphicData,
+          });
+          
+          frontText += `<img src="${graphicFilename}"><br>`;
         }
-        const backText = extractContent(back as HTMLElement);
+        
+        // Add front text
+        const frontResult = extractContent(front as HTMLElement);
+        frontText += await processExtractedContent(frontResult);
+        
+        // Add choices if enabled
+        if (includeChoices && choices) {
+          const choicesResult = extractContent(choices as HTMLElement, { labelFormat });
+          frontText += '<br><br>' + await processExtractedContent(choicesResult);
+        }
+        
+        const backResult = extractContent(back as HTMLElement);
+        const backText = await processExtractedContent(backResult);
 
         await browser.runtime.sendMessage({
           action: "addTextNote",
@@ -136,30 +216,63 @@ async function makeStepNameClickable(step: Element) {
           tags: ["mathacademy", lesson],
         });
       } else {
-        // Image mode: capture front (optionally with choices) and back
-        let frontImg: string;
-        if (includeChoices && choices) {
-          // Create a temporary wrapper to capture both elements together
-          const wrapper = document.createElement('div');
-          wrapper.style.cssText = 'position: absolute; left: -9999px; background: white;';
-          wrapper.appendChild(front.cloneNode(true));
-          wrapper.appendChild(choices.cloneNode(true));
-          document.body.appendChild(wrapper);
-          try {
-            frontImg = await captureElement(wrapper);
-          } finally {
-            document.body.removeChild(wrapper);
-          }
-        } else {
-          frontImg = await captureElement(front);
-        }
-        const backImg = await captureElement(back);
+        // Image mode: capture front elements individually and composite them
+        const timestamp = Date.now();
+        let frontHtml = marker; // Start with marker for duplicate detection
+        
+        // Helper to capture an element, store it, and return an img tag
+        const captureAndStore = async (element: HTMLElement, label: string): Promise<string> => {
+          const dataUrl = await captureElement(element);
+          const filename = `autobot-${timestamp}-${label}.png`;
+          const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+          await browser.runtime.sendMessage({
+            action: "storeMediaFile",
+            filename,
+            data: base64,
+          });
+          return `<img src="${filename}">`;
+        };
 
+        // Capture graphic if present
+        if (graphic) {
+          frontHtml += await captureAndStore(graphic, 'graphic') + '<br>';
+        }
+
+        // Capture front (question text)
+        frontHtml += await captureAndStore(front, 'front');
+
+        // Capture choices if enabled (with temporary style stripping)
+        if (includeChoices && choices) {
+          // Temporarily remove selection styling from circles
+          const circles = choices.querySelectorAll('.questionWidget-choiceLetterCircle');
+          const savedStyles: (string | null)[] = [];
+          
+          circles.forEach((circle, idx) => {
+            savedStyles[idx] = circle.getAttribute('style');
+            circle.removeAttribute('style');
+          });
+          
+          try {
+            frontHtml += '<br>' + await captureAndStore(choices, 'choices');
+          } finally {
+            // Restore original styles
+            circles.forEach((circle, idx) => {
+              if (savedStyles[idx]) {
+                circle.setAttribute('style', savedStyles[idx]);
+              }
+            });
+          }
+        }
+
+        // Capture back
+        const backHtml = await captureAndStore(back, 'back');
+
+        // Use addTextNote since we have HTML content with multiple images
         await browser.runtime.sendMessage({
-          action: "addNote",
+          action: "addTextNote",
           deckName: deck,
-          frontImg,
-          backImg,
+          front: frontHtml,
+          back: backHtml,
           tags: ["mathacademy", lesson],
         });
       }

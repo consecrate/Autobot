@@ -7,6 +7,7 @@ export const SELECTORS = {
     exampleFront: '.exampleQuestion',
     exampleBack: '.exampleExplanation',
     questionFront: '.questionWidget-text',
+    questionGraphic: '.questionWidget-graphic',
     questionChoices: '.questionWidget-choicesTable',
     questionBack: '.questionWidget-explanation',
 } as const;
@@ -26,6 +27,7 @@ export function getFrontBackElements(step: Element, type: StepType) {
             front: step.querySelector<HTMLElement>(SELECTORS.exampleFront),
             back: step.querySelector<HTMLElement>(SELECTORS.exampleBack),
             choices: null,
+            graphic: null,
         };
     }
     if (type === 'question') {
@@ -33,9 +35,10 @@ export function getFrontBackElements(step: Element, type: StepType) {
             front: step.querySelector<HTMLElement>(SELECTORS.questionFront),
             back: step.querySelector<HTMLElement>(SELECTORS.questionBack),
             choices: step.querySelector<HTMLElement>(SELECTORS.questionChoices),
+            graphic: step.querySelector<HTMLElement>(SELECTORS.questionGraphic),
         };
     }
-    return { front: null, back: null, choices: null };
+    return { front: null, back: null, choices: null, graphic: null };
 }
 
 export function getLessonName(): string {

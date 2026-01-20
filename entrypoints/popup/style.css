@@ -32,4 +32,10 @@ select { width: 100%; margin-top: 4px; }
   width: auto;
   margin: 0;
 }
+#textModeOptions {
+  display: none;
+}
+#textModeOptions.visible {
+  display: block;
+}
 #status { font-size: 11px; color: #666; margin-top: 8px; }

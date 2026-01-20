@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>Autobot</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <h1>Autobot</h1>
   <label for="deck">Deck:</label>
@@ -18,15 +20,22 @@
     <input type="checkbox" id="choices">
     Include choices
   </label>
-  <div id="labelFormatGroup" class="sub-option">
-    <label for="labelFormat">Label format:</label>
-    <select id="labelFormat">
-      <option value="paren">a)</option>
-      <option value="dot">a.</option>
-      <option value="bracket">(a)</option>
-    </select>
+  <div id="textModeOptions">
+    <div id="labelFormatGroup" class="sub-option">
+      <label for="labelFormat">Label format:</label>
+      <select id="labelFormat">
+        <option value="paren">a)</option>
+        <option value="dot">a.</option>
+        <option value="bracket">(a)</option>
+      </select>
+    </div>
+    <label class="checkbox-label">
+      <input type="checkbox" id="fixDarkMode" checked>
+      Fix images for dark mode
+    </label>
   </div>
   <p id="status"></p>
   <script type="module" src="main.ts"></script>
 </body>
+
 </html>

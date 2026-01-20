@@ -1,4 +1,4 @@
-import { addNote, addTextNote, canAddNotes, deleteNotes, findNotes, getDeckNames } from '@/utils/anki';
+import { addNote, addTextNote, canAddNotes, deleteNotes, findNotes, getDeckNames, storeMediaFile } from '@/utils/anki';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -41,6 +41,12 @@ export default defineBackground(() => {
     }
     if (msg.action === 'deleteNotes') {
       deleteNotes(msg.notes)
+        .then(sendResponse)
+        .catch((err) => sendResponse({ error: err.message }));
+      return true;
+    }
+    if (msg.action === 'storeMediaFile') {
+      storeMediaFile(msg.filename, msg.data)
         .then(sendResponse)
         .catch((err) => sendResponse({ error: err.message }));
       return true;

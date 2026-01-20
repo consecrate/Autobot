@@ -1,6 +1,72 @@
 declare const browser: { runtime: { getURL: (path: string) => string } };
 
 /**
+ * Adds a white background to an image by drawing it on a canvas.
+ * This fixes transparent images for dark mode viewing.
+ * @param base64Data - The base64-encoded image data (without prefix)
+ * @returns Promise with new base64 data with white background
+ */
+export async function addWhiteBackground(base64Data: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error('Failed to get canvas context'));
+                return;
+            }
+            
+            // Draw white background first
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the image on top
+            ctx.drawImage(img, 0, 0);
+            
+            // Convert back to base64 (PNG format to preserve quality)
+            const dataUrl = canvas.toDataURL('image/png');
+            const newBase64 = dataUrl.split(',')[1];
+            resolve(newBase64);
+        };
+        img.onerror = () => reject(new Error('Failed to load image for white background processing'));
+        img.src = `data:image/png;base64,${base64Data}`;
+    });
+}
+
+/**
+ * Fetches an image from a URL and returns it as base64.
+ * Handles relative URLs by resolving against the current page.
+ */
+export async function fetchImageAsBase64(src: string): Promise<string> {
+    // Resolve relative URLs
+    const url = new URL(src, window.location.href).href;
+    console.log(`[Autobot] Fetching image: ${url}`);
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    }
+    
+    const blob = await response.blob();
+    
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const result = reader.result as string;
+            // Extract just the base64 part (remove data:image/...;base64, prefix)
+            const base64 = result.split(',')[1];
+            resolve(base64);
+        };
+        reader.onerror = () => reject(new Error('Failed to read image as base64'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+/**
  * Injects web-accessible script to extract TeX from MathJax.
  * Bypasses CSP by loading external script file.
  */
@@ -41,10 +107,22 @@ export interface ExtractOptions {
 }
 
 /**
+ * Result from extractContent function.
+ */
+export interface ExtractResult {
+    content: string;
+    images: Array<{
+        placeholder: string;  // e.g., "{{IMG_0}}"
+        src: string;          // The image URL to fetch
+    }>;
+}
+
+/**
  * Extracts text and math from a DOM element.
  * Injects script to extract TeX from MathJax.
+ * Returns content and any images that need to be fetched/stored.
  */
-export function extractContent(el: HTMLElement, options: ExtractOptions = {}): string {
+export function extractContent(el: HTMLElement, options: ExtractOptions = {}): ExtractResult {
     injectTexExtractor();
 
     // Trigger TeX extraction for any new containers
@@ -54,6 +132,7 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): s
     const isChoicesTable = el.classList?.contains('questionWidget-choicesTable');
 
     const result: string[] = [];
+    const images: ExtractResult['images'] = [];
     let mathCount = 0;
 
     function walk(node: Node) {
@@ -85,6 +164,18 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): s
                 result.push('<br>');  // Single line break after each option
                 return;  // Don't process children normally
             }
+        }
+
+        // Handle <img> elements - extract src and add placeholder
+        if (node.tagName === 'IMG') {
+            const src = node.getAttribute('src');
+            if (src) {
+                const placeholder = `{{IMG_${images.length}}}`;
+                images.push({ placeholder, src });
+                result.push(placeholder);
+                console.log(`[Autobot] Found image in content: ${src} -> ${placeholder}`);
+            }
+            return;
         }
 
         // Handle MathJax containers
@@ -130,8 +221,8 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): s
         .replace(/(<br>)+/g, '<br>')           // Collapse multiple single breaks
         .trim();
 
-    console.log(`[Autobot] Extracted: ${mathCount} math expression(s), ${content.length} chars`);
+    console.log(`[Autobot] Extracted: ${mathCount} math expression(s), ${images.length} image(s), ${content.length} chars`);
     console.log(`[Autobot] Preview: ${content.slice(0, 100)}${content.length > 100 ? '...' : ''}`);
 
-    return content;
+    return { content, images };
 }

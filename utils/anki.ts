@@ -21,6 +21,12 @@ export async function invoke<T>(action: string, params?: Record<string, unknown>
 
 export const getDeckNames = () => invoke<string[]>('deckNames');
 
+export const storeMediaFile = (filename: string, data: string) =>
+    invoke<string>('storeMediaFile', {
+        filename,
+        data,
+    });
+
 export const canAddNotes = (notes: Array<{
     deckName: string;
     modelName: string;

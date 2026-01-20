@@ -8,7 +8,7 @@ export async function captureElement(el: HTMLElement): Promise<string> {
   const height = el.scrollHeight + CAPTURE_PADDING * 2;
 
   return domToPng(el, {
-    scale: 2.5,
+    scale: 2.0,
     backgroundColor: "#ffffff",
     width,
     height,
@@ -20,13 +20,12 @@ export async function captureElement(el: HTMLElement): Promise<string> {
       height: "auto",
       margin: `${CAPTURE_PADDING}px`,
     },
-    // Also fix overflow on all descendants
+    // Fix overflow on all descendants
     onCloneNode: (clonedNode) => {
       if (clonedNode instanceof HTMLElement) {
-        const style = clonedNode.style;
         // Remove any overflow clipping
         if (getComputedStyle(clonedNode).overflow !== "visible") {
-          style.overflow = "visible";
+          clonedNode.style.overflow = "visible";
         }
       }
     },
