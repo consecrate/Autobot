@@ -142,6 +142,9 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
 
         if (!(node instanceof HTMLElement)) return;
 
+        // Skip style and script elements entirely
+        if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return;
+
         // Choices table rows: label + content + newline
         if (isChoicesTable && node.tagName === 'TR') {
             const cells = Array.from(node.querySelectorAll('td'));
@@ -168,12 +171,13 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
             return;
         }
 
-        // MathJax: extract TeX source
-        if (node.tagName.toLowerCase() === 'mjx-container') {
+        // MathJax: extract TeX source (both 2.x and 3.x)
+        const isMathJax = node.tagName.toLowerCase() === 'mjx-container' || node.classList.contains('mjpage');
+        if (isMathJax) {
             const tex = getTexSource(node);
             if (tex) {
                 mathCount++;
-                const isBlock = node.getAttribute('display') === 'block';
+                const isBlock = node.getAttribute('display') === 'block' || node.classList.contains('mjpage__block');
                 parts.push(isBlock ? `\n\n\\[${tex}\\]\n\n` : `\\(${tex}\\)`);
             } else {
                 parts.push(node.textContent || '');
