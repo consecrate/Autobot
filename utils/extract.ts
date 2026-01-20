@@ -145,6 +145,12 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
         // Skip style and script elements entirely
         if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return;
 
+        // Free response textbox: replace with empty box placeholder
+        if (node.id?.startsWith('freeResponseTextbox')) {
+            parts.push('\\(\\boxed{\\quad}\\)');
+            return;
+        }
+
         // Choices table rows: label + content + newline
         if (isChoicesTable && node.tagName === 'TR') {
             const cells = Array.from(node.querySelectorAll('td'));
