@@ -10,6 +10,7 @@ export const SELECTORS = {
     questionGraphic: '.questionWidget-graphic',
     questionChoices: '.questionWidget-choicesTable',
     questionBack: '.questionWidget-explanation',
+    continueButton: '.continueButton',
 } as const;
 
 export type StepType = 'example' | 'question' | null;

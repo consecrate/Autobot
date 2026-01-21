@@ -80,22 +80,28 @@ export function injectTexExtractor(): void {
 
 /**
  * Gets TeX from a MathJax container.
- * Checks data-tex attribute (set by injected script) or script tags.
+ * Prefers mjx-container's data-tex (correct) over .mjpage's (often broken).
  */
 function getTexSource(container: HTMLElement): string | null {
-    // First check data-tex set by injected script
+    // For .mjpage wrappers, prefer nested mjx-container's data-tex
+    if (container.classList.contains('mjpage')) {
+        const mjxChild = container.querySelector<HTMLElement>('mjx-container[data-tex]');
+        if (mjxChild) {
+            const tex = mjxChild.getAttribute('data-tex');
+            if (tex) return tex;
+        }
+    }
+
+    // Check data-tex on the container itself
     const dataTex = container.getAttribute('data-tex');
-    console.log('[Autobot] getTexSource: data-tex attr =', dataTex?.slice(0, 30) || 'null');
     if (dataTex) return dataTex;
 
-    // Fallback: check for adjacent script tag
+    // Fallback: adjacent script tag
     const prevSibling = container.previousElementSibling;
-    console.log('[Autobot] getTexSource: prevSibling =', prevSibling?.tagName, prevSibling?.getAttribute('type'));
     if (prevSibling?.matches('script[type="math/tex"], script[type="math/tex; mode=display"]')) {
         return prevSibling.textContent;
     }
 
-    console.log('[Autobot] getTexSource: no TeX found, using textContent fallback');
     return null;
 }
 
@@ -142,8 +148,9 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
 
         if (!(node instanceof HTMLElement)) return;
 
-        // Skip style and script elements entirely
+        // Skip style, script, and Autobot UI elements
         if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return;
+        if (node.classList?.contains('autobotAnkiButton')) return;
 
         // Free response textbox: replace with empty box placeholder
         if (node.id?.startsWith('freeResponseTextbox')) {

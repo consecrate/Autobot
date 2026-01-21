@@ -287,6 +287,294 @@ async function makeStepNameClickable(step: Element) {
   return true;
 }
 
+async function injectAnkiButton(step: Element) {
+  // Skip if step is not visible (not yet solved)
+  const stepEl = step as HTMLElement;
+  if (stepEl.style.display === 'none' || getComputedStyle(stepEl).display === 'none') {
+    return false;
+  }
+
+  // Skip if already processed
+  if (stepEl.dataset.autobotAnkiBtn) return false;
+
+  const type = getStepType(step);
+  if (!type) return false;
+
+  const lesson = getLessonName().toLowerCase().replace(/\s+/g, "-");
+  const stepName = getStepName(step);
+  const marker = `<!-- autobot:${lesson}:${stepName} -->`;
+
+  // Create the button - use only our own class to prevent MathAcademy from hiding it
+  const ankiBtn = document.createElement("div");
+  ankiBtn.className = "autobotAnkiButton";
+  ankiBtn.textContent = "Add to Anki";
+  ankiBtn.style.cssText = `
+    background-color: #5a9fd4;
+    color: #f8f8f8;
+    cursor: pointer;
+    display: inline-block;
+    width: 100px;
+    padding: 10px 0;
+    border-radius: 17px;
+    font-size: 14px;
+    text-align: center;
+    user-select: none;
+  `;
+
+  let isAdded = false;
+
+  const updateBtn = (status?: string) => {
+    if (status === "Adding..." || status === "Removing...") {
+      ankiBtn.textContent = status;
+      ankiBtn.style.opacity = "0.7";
+    } else if (status === "Added") {
+      ankiBtn.textContent = "Added";
+      ankiBtn.style.backgroundColor = "#4a8";
+      ankiBtn.style.opacity = "1";
+    } else if (status === "Error") {
+      ankiBtn.textContent = "Error";
+      ankiBtn.style.backgroundColor = "#d55";
+      ankiBtn.style.opacity = "1";
+    } else {
+      ankiBtn.textContent = "Add to Anki";
+      ankiBtn.style.backgroundColor = "#5a9fd4";
+      ankiBtn.style.opacity = "1";
+    }
+  };
+
+  // Check if already added
+  const existingNotes = await browser.runtime.sendMessage({
+    action: "findNotes",
+    query: `"Front:${marker}"`,
+  });
+  if (existingNotes?.length) {
+    isAdded = true;
+    updateBtn("Added");
+  }
+
+  ankiBtn.onclick = async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (isAdded) {
+      updateBtn("Removing...");
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const noteIds = await browser.runtime.sendMessage({
+          action: "findNotes",
+          query: `"Front:${marker}"`,
+        });
+        if (noteIds?.length) {
+          await browser.runtime.sendMessage({
+            action: "deleteNotes",
+            notes: noteIds,
+          });
+        }
+        isAdded = false;
+        updateBtn();
+      } catch (e) {
+        updateBtn("Error");
+        console.error("[Autobot] Error:", e);
+      }
+      return;
+    }
+
+    // Add to Anki
+    const deck = await getDeck();
+    const mode = await getMode();
+    const includeChoices = await getIncludeChoices();
+    const labelFormat = await getLabelFormat();
+    const fixDarkMode = await getFixDarkMode();
+
+    updateBtn("Adding...");
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      const { front, back, choices, graphic } = getFrontBackElements(step, type);
+      if (!front || !back) throw new Error("Elements not found");
+
+      if (mode === 'text') {
+        let frontText = marker;
+        const timestamp = Date.now();
+        let imageCounter = 0;
+
+        const processExtractedContent = async (result: ExtractResult): Promise<string> => {
+          let processedContent = result.content;
+          for (const img of result.images) {
+            try {
+              let base64Data = await fetchImageAsBase64(img.src);
+              if (fixDarkMode) {
+                base64Data = await addWhiteBackground(base64Data);
+              }
+              const filename = `autobot-${timestamp}-img${imageCounter++}.png`;
+              await browser.runtime.sendMessage({
+                action: "storeMediaFile",
+                filename,
+                data: base64Data,
+              });
+              processedContent = processedContent.replace(
+                img.placeholder,
+                `<img src="${filename}">`
+              );
+            } catch (e) {
+              processedContent = processedContent.replace(img.placeholder, '[Image]');
+            }
+          }
+          return processedContent;
+        };
+
+        if (graphic) {
+          const graphicImg = await captureElement(graphic);
+          const graphicFilename = `autobot-${timestamp}-graphic.png`;
+          let graphicData = graphicImg.replace(/^data:image\/png;base64,/, '');
+          if (fixDarkMode) {
+            graphicData = await addWhiteBackground(graphicData);
+          }
+          await browser.runtime.sendMessage({
+            action: "storeMediaFile",
+            filename: graphicFilename,
+            data: graphicData,
+          });
+          frontText += `<img src="${graphicFilename}"><br>`;
+        }
+
+        const frontResult = extractContent(front as HTMLElement);
+        frontText += await processExtractedContent(frontResult);
+
+        if (includeChoices && choices) {
+          const choicesResult = extractContent(choices as HTMLElement, { labelFormat });
+          frontText += await processExtractedContent(choicesResult);
+        }
+
+        const backResult = extractContent(back as HTMLElement);
+        const backText = await processExtractedContent(backResult);
+
+        await browser.runtime.sendMessage({
+          action: "addTextNote",
+          deckName: deck,
+          front: frontText,
+          back: backText,
+          tags: ["mathacademy", lesson],
+        });
+      } else {
+        const timestamp = Date.now();
+        let frontHtml = marker;
+
+        const captureAndStore = async (element: HTMLElement, label: string): Promise<string> => {
+          const dataUrl = await captureElement(element);
+          const filename = `autobot-${timestamp}-${label}.png`;
+          const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+          await browser.runtime.sendMessage({
+            action: "storeMediaFile",
+            filename,
+            data: base64,
+          });
+          return `<img src="${filename}">`;
+        };
+
+        if (graphic) {
+          frontHtml += await captureAndStore(graphic, 'graphic') + '<br>';
+        }
+        frontHtml += await captureAndStore(front, 'front');
+
+        if (includeChoices && choices) {
+          const circles = choices.querySelectorAll('.questionWidget-choiceLetterCircle');
+          const savedStyles: (string | null)[] = [];
+          circles.forEach((circle, idx) => {
+            savedStyles[idx] = circle.getAttribute('style');
+            circle.removeAttribute('style');
+          });
+          try {
+            frontHtml += '<br>' + await captureAndStore(choices, 'choices');
+          } finally {
+            circles.forEach((circle, idx) => {
+              if (savedStyles[idx]) {
+                circle.setAttribute('style', savedStyles[idx]);
+              }
+            });
+          }
+        }
+
+        const backHtml = await captureAndStore(back, 'back');
+
+        await browser.runtime.sendMessage({
+          action: "addTextNote",
+          deckName: deck,
+          front: frontHtml,
+          back: backHtml,
+          tags: ["mathacademy", lesson],
+        });
+      }
+
+      isAdded = true;
+      updateBtn("Added");
+    } catch (e) {
+      updateBtn("Error");
+      console.error("[Autobot] Error:", e);
+    }
+  };
+
+  // Determine where to place the button based on current state
+  const frame = step.nextElementSibling;
+  const continueBtnEl = frame?.classList.contains('continueButtonFrame')
+    ? frame.querySelector<HTMLElement>(SELECTORS.continueButton)
+    : null;
+  // Check if continue button is actually visible (not display: none)
+  const isContinueVisible = continueBtnEl
+    && continueBtnEl.style.display !== 'none'
+    && getComputedStyle(continueBtnEl).display !== 'none';
+  const continueBtn = isContinueVisible ? continueBtnEl : null;
+
+  // Get the explanation container based on step type
+  const explanationSelector = type === 'example'
+    ? SELECTORS.exampleBack
+    : SELECTORS.questionBack;
+  const explanation = step.querySelector<HTMLElement>(explanationSelector);
+
+  if (continueBtn) {
+    // Continue button is visible - place button next to it
+    (frame as HTMLElement).style.display = "flex";
+    (frame as HTMLElement).style.gap = "8px";
+    (frame as HTMLElement).style.alignItems = "flex-end";
+    // Match Continue button's margin-top so they align
+    ankiBtn.style.marginTop = "50px";
+    frame!.appendChild(ankiBtn);
+
+    // Watch for when Continue button is hidden (display: none)
+    const moveToExplanation = () => {
+      if (!frame!.contains(ankiBtn) || !explanation) return; // Already moved or no target
+      ankiBtn.style.marginTop = "12px";
+      explanation.appendChild(ankiBtn);
+    };
+
+    const observer = new MutationObserver(() => {
+      if (!frame!.contains(ankiBtn)) {
+        observer.disconnect();
+        return;
+      }
+      // Check Continue button visibility directly
+      const isContinueHidden = continueBtn.style.display === 'none'
+        || getComputedStyle(continueBtn).display === 'none';
+      if (isContinueHidden) {
+        moveToExplanation();
+        observer.disconnect();
+      }
+    });
+    // Watch both the Continue button and the frame for style changes
+    observer.observe(continueBtn, { attributes: true, attributeFilter: ['style'] });
+    observer.observe(frame!, { attributes: true, attributeFilter: ['style'] });
+  } else if (explanation) {
+    // No continue button visible - place at end of explanation
+    ankiBtn.style.marginTop = "12px";
+    explanation.appendChild(ankiBtn);
+  } else {
+    return false; // Nowhere to place button
+  }
+
+  // Mark as processed only after successful placement
+  stepEl.dataset.autobotAnkiBtn = "true";
+  return true;
+}
+
 async function injectButton(step: Element, index?: number) {
   const type = getStepType(step);
   if (!type) return;
@@ -294,8 +582,11 @@ async function injectButton(step: Element, index?: number) {
   const name = getStepName(step);
   const prefix = index !== undefined ? `#${index + 1}` : '';
 
-  if (await makeStepNameClickable(step)) {
-    console.log(`[Autobot] ${prefix} "${name}" (${type}) → clickable`);
+  const titleAdded = await makeStepNameClickable(step);
+  const btnAdded = await injectAnkiButton(step);
+
+  if (titleAdded || btnAdded) {
+    console.log(`[Autobot] ${prefix} "${name}" (${type}) → injected`);
   } else {
     console.log(`[Autobot] ${prefix} "${name}" (${type}) → skipped (already processed)`);
   }
@@ -322,6 +613,18 @@ export default defineContentScript({
       const stepsToCheck = new Set<Element>();
 
       for (const m of mutations) {
+        // Handle attribute changes (e.g., style/display changes)
+        if (m.type === 'attributes' && m.target instanceof Element) {
+          const step = m.target.matches?.(SELECTORS.step)
+            ? m.target
+            : m.target.closest?.(SELECTORS.step);
+          if (step && !step.hasAttribute('data-autobot-anki-btn')) {
+            stepsToCheck.add(step);
+          }
+          continue;
+        }
+
+        // Handle added nodes
         for (const node of Array.from(m.addedNodes)) {
           if (!(node instanceof Element)) continue;
           // New step elements
@@ -344,6 +647,6 @@ export default defineContentScript({
         console.log(`[Autobot] Mutation: checking ${stepsToCheck.size} step(s)`);
         stepsToCheck.forEach((step) => injectButton(step));
       }
-    }).observe(stepsContainer, { childList: true, subtree: true });
+    }).observe(stepsContainer, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
   },
 });
