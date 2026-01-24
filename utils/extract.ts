@@ -113,6 +113,107 @@ export interface ExtractOptions {
 }
 
 /**
+ * Extracts content from a table cell, processing text, MathJax, and images.
+ */
+function extractCellContent(
+    cell: HTMLElement,
+    images: ExtractResult['images'],
+    mathCountRef: { value: number }
+): string {
+    const cellParts: string[] = [];
+
+    function walkCell(node: Node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent?.trim();
+            if (text) cellParts.push(text);
+            return;
+        }
+
+        if (!(node instanceof HTMLElement)) return;
+
+        // Skip style, script, Autobot UI
+        if (node.tagName === 'STYLE' || node.tagName === 'SCRIPT') return;
+        if (node.classList?.contains('autobotAnkiButton')) return;
+
+        // Free response textbox
+        if (node.id?.startsWith('freeResponseTextbox')) {
+            cellParts.push('\\(\\boxed{\\quad}\\)');
+            return;
+        }
+
+        // Images
+        if (node.tagName === 'IMG') {
+            const src = node.getAttribute('src');
+            if (src) {
+                const placeholder = `{{IMG_${images.length}}}`;
+                images.push({ placeholder, src });
+                cellParts.push(placeholder);
+            }
+            return;
+        }
+
+        // MathJax (2.x and 3.x)
+        const isMathJax = node.tagName.toLowerCase() === 'mjx-container' || node.classList.contains('mjpage');
+        if (isMathJax) {
+            const tex = getTexSource(node);
+            if (tex) {
+                mathCountRef.value++;
+                const isBlock = node.getAttribute('display') === 'block' || node.classList.contains('mjpage__block');
+                cellParts.push(isBlock ? `\\[${tex}\\]` : `\\(${tex}\\)`);
+            } else {
+                cellParts.push(node.textContent || '');
+            }
+            return;
+        }
+
+        // Nested tables
+        if (node.tagName === 'TABLE') {
+            cellParts.push(processTable(node, images, mathCountRef));
+            return;
+        }
+
+        // Process children
+        for (const child of Array.from(node.childNodes)) walkCell(child);
+    }
+
+    walkCell(cell);
+    return cellParts.join(' ').trim();
+}
+
+/**
+ * Processes a TABLE element into an HTML string, preserving structure.
+ * Cell contents are processed for math, images, and nested tables.
+ */
+function processTable(
+    table: HTMLElement,
+    images: ExtractResult['images'],
+    mathCountRef: { value: number }
+): string {
+    let html = '<table style="border-collapse: collapse; margin: 8px 0;">';
+
+    const rows = table.querySelectorAll(':scope > tbody > tr, :scope > thead > tr, :scope > tr');
+    for (const row of Array.from(rows)) {
+        html += '<tr>';
+        const cells = row.querySelectorAll(':scope > td, :scope > th');
+        for (const cell of Array.from(cells)) {
+            const tag = cell.tagName.toLowerCase();
+            const colspan = cell.getAttribute('colspan');
+            const rowspan = cell.getAttribute('rowspan');
+            let attrs = ' style="border: 1px solid #ccc; padding: 4px 8px;"';
+            if (colspan) attrs += ` colspan="${colspan}"`;
+            if (rowspan) attrs += ` rowspan="${rowspan}"`;
+
+            const cellContent = extractCellContent(cell as HTMLElement, images, mathCountRef);
+            html += `<${tag}${attrs}>${cellContent}</${tag}>`;
+        }
+        html += '</tr>';
+    }
+
+    html += '</table>';
+    return html;
+}
+
+/**
  * Result from extractContent function.
  */
 export interface ExtractResult {
@@ -137,7 +238,7 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
 
     const parts: string[] = [];
     const images: ExtractResult['images'] = [];
-    let mathCount = 0;
+    const mathCountRef = { value: 0 };
 
     function walk(node: Node) {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -189,12 +290,18 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
         if (isMathJax) {
             const tex = getTexSource(node);
             if (tex) {
-                mathCount++;
+                mathCountRef.value++;
                 const isBlock = node.getAttribute('display') === 'block' || node.classList.contains('mjpage__block');
                 parts.push(isBlock ? `\n\n\\[${tex}\\]\n\n` : `\\(${tex}\\)`);
             } else {
                 parts.push(node.textContent || '');
             }
+            return;
+        }
+
+        // Tables: preserve HTML structure (but not choices tables - handled separately)
+        if (node.tagName === 'TABLE' && !isChoicesTable) {
+            parts.push(processTable(node, images, mathCountRef));
             return;
         }
 
@@ -215,6 +322,6 @@ export function extractContent(el: HTMLElement, options: ExtractOptions = {}): E
         .replace(/\n/g, '<br>')           // Line breaks
         .trim();
 
-    console.log(`[Autobot] Extracted: ${mathCount} math, ${images.length} img, ${content.length} chars`);
+    console.log(`[Autobot] Extracted: ${mathCountRef.value} math, ${images.length} img, ${content.length} chars`);
     return { content, images };
 }
