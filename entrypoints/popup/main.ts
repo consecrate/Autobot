@@ -1,8 +1,5 @@
-const DECK_KEY = 'autobot_deck';
-const MODE_KEY = 'autobot_mode';
-const CHOICES_KEY = 'autobot_include_choices';
-const LABEL_FORMAT_KEY = 'autobot_label_format';
-const FIX_DARK_MODE_KEY = 'autobot_fix_dark_mode';
+import { STORAGE_KEYS, DEFAULT_DECK } from '@/utils/constants';
+
 const deckSelect = document.getElementById('deck') as HTMLSelectElement;
 const modeSelect = document.getElementById('mode') as HTMLSelectElement;
 const choicesCheckbox = document.getElementById('choices') as HTMLInputElement;
@@ -22,12 +19,24 @@ async function init() {
       throw new Error(`Invalid response: ${JSON.stringify(decks)}`);
     }
 
-    const { [DECK_KEY]: savedDeck, [MODE_KEY]: savedMode, [CHOICES_KEY]: savedChoices, [LABEL_FORMAT_KEY]: savedLabelFormat, [FIX_DARK_MODE_KEY]: savedFixDarkMode } = await browser.storage.local.get([DECK_KEY, MODE_KEY, CHOICES_KEY, LABEL_FORMAT_KEY, FIX_DARK_MODE_KEY]);
+    const {
+      [STORAGE_KEYS.deck]: savedDeck,
+      [STORAGE_KEYS.mode]: savedMode,
+      [STORAGE_KEYS.includeChoices]: savedChoices,
+      [STORAGE_KEYS.labelFormat]: savedLabelFormat,
+      [STORAGE_KEYS.fixDarkMode]: savedFixDarkMode,
+    } = await browser.storage.local.get([
+      STORAGE_KEYS.deck,
+      STORAGE_KEYS.mode,
+      STORAGE_KEYS.includeChoices,
+      STORAGE_KEYS.labelFormat,
+      STORAGE_KEYS.fixDarkMode,
+    ]);
 
     decks.forEach((name: string) => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = name;
-      opt.selected = name === (savedDeck || 'MathAcademy');
+      opt.selected = name === (savedDeck || DEFAULT_DECK);
       deckSelect.appendChild(opt);
     });
 
@@ -47,25 +56,25 @@ async function init() {
 }
 
 deckSelect.onchange = () => {
-  browser.storage.local.set({ [DECK_KEY]: deckSelect.value });
+  browser.storage.local.set({ [STORAGE_KEYS.deck]: deckSelect.value });
 };
 
 modeSelect.onchange = () => {
-  browser.storage.local.set({ [MODE_KEY]: modeSelect.value });
+  browser.storage.local.set({ [STORAGE_KEYS.mode]: modeSelect.value });
   textModeOptions.classList.toggle('visible', modeSelect.value === 'text');
 };
 
 choicesCheckbox.onchange = () => {
-  browser.storage.local.set({ [CHOICES_KEY]: choicesCheckbox.checked });
+  browser.storage.local.set({ [STORAGE_KEYS.includeChoices]: choicesCheckbox.checked });
   labelFormatGroup.classList.toggle('visible', choicesCheckbox.checked);
 };
 
 labelFormatSelect.onchange = () => {
-  browser.storage.local.set({ [LABEL_FORMAT_KEY]: labelFormatSelect.value });
+  browser.storage.local.set({ [STORAGE_KEYS.labelFormat]: labelFormatSelect.value });
 };
 
 fixDarkModeCheckbox.onchange = () => {
-  browser.storage.local.set({ [FIX_DARK_MODE_KEY]: fixDarkModeCheckbox.checked });
+  browser.storage.local.set({ [STORAGE_KEYS.fixDarkMode]: fixDarkModeCheckbox.checked });
 };
 
 init();

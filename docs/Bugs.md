@@ -1,3 +1,4 @@
 - Menu doesn't update, requires reload.
 - Card remove functionalities not working yet.
 - Options doesn't work with example problems
+- Haven't tested yet: graphics in text mode.

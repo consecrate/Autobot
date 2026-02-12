@@ -1,7 +1,8 @@
 import { addNote, addTextNote, canAddNotes, deleteNotes, findNotes, getDeckNames, storeMediaFile } from '@/utils/anki';
+import type { AutobotMessage } from '@/utils/messages';
 
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((msg: AutobotMessage, _sender, sendResponse) => {
     if (msg.action === 'canAddNotes') {
       canAddNotes(msg.notes)
         .then(sendResponse)

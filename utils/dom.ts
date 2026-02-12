@@ -11,6 +11,13 @@ export const SELECTORS = {
     questionChoices: '.questionWidget-choicesTable',
     questionBack: '.questionWidget-explanation',
     continueButton: '.continueButton',
+    // Results page selectors
+    resultsContainer: '.kpList',
+    assessmentContainer: '.testAnswers',
+    resultQuestion: '.question[id^="question-"]',
+    resultExplanation: '.questionExplanation[id^="questionExplanation-"]',
+    taskNameUnlocked: '.taskNameUnlocked',
+    taskAnswersHeader: '.taskExpanded',
 } as const;
 
 export type StepType = 'example' | 'question' | null;
