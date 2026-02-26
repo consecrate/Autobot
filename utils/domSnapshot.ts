@@ -1,5 +1,14 @@
-import { SELECTORS, getFrontBackElements, getLessonName, getStepType } from '@/utils/dom';
-import type { DomSnippet, StepStructureSummary, StructureSnapshot } from '@/utils/messages';
+import {
+  SELECTORS,
+  getFrontBackElements,
+  getLessonName,
+  getStepType,
+} from "@/utils/dom";
+import type {
+  DomSnippet,
+  StepStructureSummary,
+  StructureSnapshot,
+} from "@/utils/messages";
 
 interface SnapshotOptions {
   maxSnippets?: number;
@@ -14,7 +23,10 @@ function truncateSnippet(html: string, maxLength: number): string {
   return `${html.slice(0, maxLength)}\n<!-- truncated -->`;
 }
 
-function extractSnippets(maxSnippets: number, maxSnippetLength: number): DomSnippet[] {
+function extractSnippets(
+  maxSnippets: number,
+  maxSnippetLength: number,
+): DomSnippet[] {
   const selectorsToCapture = [
     SELECTORS.steps,
     SELECTORS.step,
@@ -50,12 +62,21 @@ function extractSnippets(maxSnippets: number, maxSnippetLength: number): DomSnip
 }
 
 function getStepName(step: Element): string {
-  return step.querySelector('.stepName, .questionWidget-stepName, .questionWidget-title')?.textContent?.trim() || 'unnamed';
+  return (
+    step
+      .querySelector(
+        ".stepName, .questionWidget-stepName, .questionWidget-title",
+      )
+      ?.textContent?.trim() || "unnamed"
+  );
 }
 
-export function buildStructureSnapshot(options: SnapshotOptions = {}): StructureSnapshot {
+export function buildStructureSnapshot(
+  options: SnapshotOptions = {},
+): StructureSnapshot {
   const maxSnippets = options.maxSnippets ?? DEFAULT_MAX_SNIPPETS;
-  const maxSnippetLength = options.maxSnippetLength ?? DEFAULT_MAX_SNIPPET_LENGTH;
+  const maxSnippetLength =
+    options.maxSnippetLength ?? DEFAULT_MAX_SNIPPET_LENGTH;
 
   const selectorList = [
     SELECTORS.steps,
@@ -84,13 +105,16 @@ export function buildStructureSnapshot(options: SnapshotOptions = {}): Structure
   const stepElements = Array.from(document.querySelectorAll(SELECTORS.step));
   const steps: StepStructureSummary[] = stepElements.map((step, index) => {
     const stepType = getStepType(step);
-    const { front, back, choices, graphic } = getFrontBackElements(step, stepType);
+    const { front, back, choices, graphic } = getFrontBackElements(
+      step,
+      stepType,
+    );
 
     return {
       index,
       id: step.id || null,
       name: getStepName(step),
-      type: stepType ?? 'unknown',
+      type: stepType ?? "unknown",
       hasFront: Boolean(front),
       hasBack: Boolean(back),
       hasChoices: Boolean(choices),
@@ -100,20 +124,28 @@ export function buildStructureSnapshot(options: SnapshotOptions = {}): Structure
 
   const stepSummary = {
     total: steps.length,
-    examples: steps.filter((step) => step.type === 'example').length,
-    questions: steps.filter((step) => step.type === 'question').length,
-    unknown: steps.filter((step) => step.type === 'unknown').length,
+    examples: steps.filter((step) => step.type === "example").length,
+    questions: steps.filter((step) => step.type === "question").length,
+    unknown: steps.filter((step) => step.type === "unknown").length,
   };
 
   const warnings: string[] = [];
-  if (steps.length === 0 && !document.querySelector(SELECTORS.resultsContainer) && !document.querySelector(SELECTORS.assessmentContainer)) {
-    warnings.push('No lesson steps or results containers were detected on this page.');
+  if (
+    steps.length === 0 &&
+    !document.querySelector(SELECTORS.resultsContainer) &&
+    !document.querySelector(SELECTORS.assessmentContainer)
+  ) {
+    warnings.push(
+      "No lesson steps or results containers were detected on this page.",
+    );
   }
   if (!document.querySelector(SELECTORS.steps)) {
-    warnings.push('Expected lesson container (#steps) was not found.');
+    warnings.push("Expected lesson container (#steps) was not found.");
   }
   if (stepSummary.unknown > 0) {
-    warnings.push(`${stepSummary.unknown} step(s) did not match known example/question selectors.`);
+    warnings.push(
+      `${stepSummary.unknown} step(s) did not match known example/question selectors.`,
+    );
   }
 
   return {
