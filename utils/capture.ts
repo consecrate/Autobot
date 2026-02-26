@@ -9,50 +9,16 @@ const PADDING = {
   TABLE_EXTRA: 20,
 } as const;
 
-/**
- * Get accurate dimensions based on visible content bounds.
- * Avoids inflated scrollHeight from flexbox layouts by measuring
- * actual visible descendants.
- */
-function getAccurateDimensions(el: HTMLElement): { width: number; height: number } {
+function getCaptureDimensions(el: HTMLElement): {
+  width: number;
+  height: number;
+} {
   const rect = el.getBoundingClientRect();
 
-  // Start with the element's bounding rect (CSS box, not inflated by flexbox)
-  let maxWidth = rect.width;
-  let maxHeight = rect.height;
+  const width = Math.max(rect.width, el.scrollWidth, el.clientWidth, 1);
+  const height = Math.max(rect.height, el.scrollHeight, el.clientHeight, 1);
 
-  // Scan visible descendants to find actual content bounds
-  el.querySelectorAll("*").forEach((child) => {
-    // Skip non-HTMLElements
-    if (!(child instanceof HTMLElement)) return;
-
-    // Skip hidden elements
-    const style = getComputedStyle(child);
-    if (style.display === "none" || style.visibility === "hidden") return;
-
-    const childRect = child.getBoundingClientRect();
-    // Only consider if child has actual dimensions
-    if (childRect.width > 0 && childRect.height > 0) {
-      maxWidth = Math.max(maxWidth, childRect.right - rect.left);
-      maxHeight = Math.max(maxHeight, childRect.bottom - rect.top);
-    }
-  });
-
-  // Use the smaller of scrollHeight and calculated height to avoid inflation
-  // from flexbox stretching
-  maxHeight = Math.min(maxHeight, el.scrollHeight);
-  maxWidth = Math.min(maxWidth, el.scrollWidth);
-
-  // Fall back to bounding rect if dimensions are effectively zero
-  if (maxWidth < 1) {
-    maxWidth = rect.width;
-  }
-  if (maxHeight < 1) {
-    maxHeight = rect.height;
-  }
-
-  // Add 2px buffer for rounding
-  return { width: Math.ceil(maxWidth) + 2, height: Math.ceil(maxHeight) + 2 };
+  return { width: Math.ceil(width) + 2, height: Math.ceil(height) + 2 };
 }
 
 /**
@@ -63,7 +29,7 @@ function getAccurateDimensions(el: HTMLElement): { width: number; height: number
 function calculatePadding(
   width: number,
   height: number,
-  hasTable: boolean
+  hasTable: boolean,
 ): { h: number; v: number } {
   const baseH = Math.round(width * PADDING.RATIO);
   const baseV = Math.round(height * PADDING.RATIO);
@@ -84,7 +50,7 @@ function calculatePadding(
  */
 function hideFreeResponseAnswers(el: HTMLElement): () => void {
   const freeResponseBlocks = el.querySelectorAll<HTMLElement>(
-    `[id^="${DOM_IDS.freeResponsePrefix}"] .mq-root-block`
+    `[id^="${DOM_IDS.freeResponsePrefix}"] .mq-root-block`,
   );
   const savedContent: string[] = [];
 
@@ -101,8 +67,8 @@ function hideFreeResponseAnswers(el: HTMLElement): () => void {
 }
 
 export async function captureElement(el: HTMLElement): Promise<string> {
-  // Get accurate dimensions including overflow
-  const { width: contentWidth, height: contentHeight } = getAccurateDimensions(el);
+  const { width: contentWidth, height: contentHeight } =
+    getCaptureDimensions(el);
 
   // Check if element contains tables
   const hasTable = el.querySelector("table") !== null;
@@ -135,12 +101,11 @@ export async function captureElement(el: HTMLElement): Promise<string> {
         marginLeft: `${padding.h}px`,
         marginRight: `${padding.h}px`,
       },
-      // Fix overflow on all descendants and handle tables
       onCloneNode: (clonedNode) => {
         if (clonedNode instanceof HTMLElement) {
           // Hide Autobot UI elements (buttons injected by this extension)
           if (clonedNode.classList.contains(CSS_CLASSES.ankiButton)) {
-            clonedNode.style.display = 'none';
+            clonedNode.style.display = "none";
             return;
           }
 
@@ -155,11 +120,6 @@ export async function captureElement(el: HTMLElement): Promise<string> {
 
           // Ensure table cells don't clip content
           if (tagName === "TD" || tagName === "TH") {
-            clonedNode.style.overflow = "visible";
-          }
-
-          // Remove any overflow clipping on other elements
-          if (getComputedStyle(clonedNode).overflow !== "visible") {
             clonedNode.style.overflow = "visible";
           }
         }

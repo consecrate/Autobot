@@ -11,12 +11,14 @@ Dev tools to make development and debugging easier, especially since the extensi
 **Solution**: A tool that captures and saves raw HTML snapshots of current lesson pages.
 
 ### Features
+
 - Captures full HTML of current page to `dev/snapshots/`
 - Triggered via keyboard shortcut (e.g., `Ctrl+Shift+S`) or dev-mode button
 - Stores metadata about detected selectors
 - Enables diff comparison over time to detect structural changes
 
 ### Output Format
+
 ```json
 {
   "timestamp": "2026-01-20T10:14:14",
@@ -39,6 +41,7 @@ Dev tools to make development and debugging easier, especially since the extensi
 **Solution**: A floating dev panel showing live status of all selectors.
 
 ### Features
+
 - Toggle via console command or popup checkbox
 - Shows real-time status of all selectors from `utils/dom.ts`
 - Highlights detected/missing elements on the page
@@ -46,6 +49,7 @@ Dev tools to make development and debugging easier, especially since the extensi
 - Red/green indicators for each selector
 
 ### UI Example
+
 ```
 ┌─ Autobot Selector Validator ─────┐
 │ ✅ #steps (1)                     │
@@ -67,12 +71,14 @@ Dev tools to make development and debugging easier, especially since the extensi
 **Solution**: Show preview modal before sending to Anki.
 
 ### Features
+
 - Side-by-side comparison: original DOM vs captured image
 - Display actual pixel dimensions and file sizes
 - Ability to cancel or retry capture
 - Prevents polluting Anki deck with broken cards
 
 ### Modal Layout
+
 ```
 ┌─────────────────────────────────────────┐
 │  Front (1200x400px, 145KB)              │
@@ -94,6 +100,7 @@ Dev tools to make development and debugging easier, especially since the extensi
 **Solution**: Store sanitized HTML fixtures for local testing.
 
 ### Directory Structure
+
 ```
 dev/fixtures/
 ├── example-simple.html
@@ -105,6 +112,7 @@ dev/fixtures/
 ```
 
 ### Benefits
+
 - Test without real MathAcademy account
 - CI/automated testing
 - Regression testing when updating selectors
@@ -120,30 +128,32 @@ dev/fixtures/
 **Solution**: Configurable debug flag for verbose logging.
 
 ### Implementation
+
 ```typescript
 // In content.ts or utils/debug.ts
-const DEBUG = localStorage.getItem('autobot_debug') === 'true';
+const DEBUG = localStorage.getItem("autobot_debug") === "true";
 
 function log(...args: any[]) {
-  if (DEBUG) console.log('[Autobot]', ...args);
+  if (DEBUG) console.log("[Autobot]", ...args);
 }
 
 function warn(...args: any[]) {
-  console.warn('[Autobot]', ...args);
+  console.warn("[Autobot]", ...args);
 }
 
 function error(...args: any[]) {
-  console.error('[Autobot]', ...args);
+  console.error("[Autobot]", ...args);
 }
 ```
 
 ### Usage
+
 ```javascript
 // Enable debug mode in console
-localStorage.setItem('autobot_debug', 'true');
+localStorage.setItem("autobot_debug", "true");
 
 // Disable debug mode
-localStorage.removeItem('autobot_debug');
+localStorage.removeItem("autobot_debug");
 ```
 
 ---
@@ -155,19 +165,21 @@ localStorage.removeItem('autobot_debug');
 **Solution**: Skip AnkiConnect call but show what would be sent.
 
 ### Features
+
 - Display preview of note data without creating card
 - Shows deck name, tags, image sizes
 - Base64 preview of images
 - Toggle via popup or console flag
 
 ### Console Output Example
+
 ```
 [Autobot Dry-Run]
   Deck: MathAcademy
   Tags: ["mathacademy", "logarithmic-equations"]
   Front: 1200x400px (145KB)
   Back: 1200x800px (230KB)
-  
+
   (Card NOT created - dry-run mode active)
 ```
 
@@ -176,16 +188,19 @@ localStorage.removeItem('autobot_debug');
 ## Priority Ranking
 
 ### Top Priority: DOM Snapshot + Selector Validator
+
 MathAcademy's structure changing is the #1 fragility risk. These tools make it instantly visible when something breaks.
 
 **Impact**: Prevents complete extension breakage from undetected DOM changes.
 
 ### Second Priority: Mock Fixtures
+
 Development/debugging without needing to navigate to specific MathAcademy lessons saves massive time.
 
 **Impact**: 10x faster iteration speed during development.
 
 ### Third Priority: Capture Preview + Dry-Run
+
 Prevents bad data from entering Anki and speeds up testing.
 
 **Impact**: Better UX and cleaner Anki decks.
