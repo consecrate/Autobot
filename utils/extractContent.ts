@@ -110,7 +110,10 @@ function extractSelectListContent(
   mathCountRef: { value: number },
   unresolvedMathRef: { value: number },
 ): string {
-  const optionEls = selectList.querySelectorAll(".selectListOption");
+  const optionEls =
+    selectList.querySelectorAll(".selectListOptions .selectListOption").length > 0
+      ? selectList.querySelectorAll(".selectListOptions .selectListOption")
+      : selectList.querySelectorAll(".selectListOption");
   const optionTexts: string[] = [];
 
   for (const opt of optionEls) {
@@ -149,6 +152,227 @@ function extractSelectListContent(
     return optionTexts.join("/");
   }
   return `_________ (${optionTexts.join(" / ")})`;
+}
+
+function extractMjxChar(node: HTMLElement): string {
+  if (node.tagName === "MJX-C") {
+    const content = window.getComputedStyle(node, "::before").content;
+    if (content && content !== "none" && content !== "normal") {
+      return content.replace(/^["']|["']$/g, "");
+    }
+  }
+
+  return (node.textContent || "").replace(/\s+/g, "").trim();
+}
+
+function extractMjxTex(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent || "").replace(/\s+/g, "").trim();
+  }
+
+  if (!(node instanceof HTMLElement)) return "";
+  if (node.tagName === "MJX-ASSISTIVE-MML") return "";
+  if (node.classList.contains("selectList")) {
+    return "";
+  }
+
+  const directDataTex = node.getAttribute("data-tex");
+  if (directDataTex && !node.querySelector(".selectList")) {
+    return directDataTex;
+  }
+
+  if (node.tagName === "MJX-MSUP") {
+    const base = node.children[0];
+    const script = node.children[1];
+    const baseTex = base ? extractMjxTex(base) : "";
+    const scriptTex = script ? extractMjxTex(script) : "";
+    if (baseTex && scriptTex) return `${baseTex}^{${scriptTex}}`;
+    return baseTex || scriptTex;
+  }
+
+  if (node.tagName === "MJX-MSUB") {
+    const base = node.children[0];
+    const script = node.children[1];
+    const baseTex = base ? extractMjxTex(base) : "";
+    const scriptTex = script ? extractMjxTex(script) : "";
+    if (baseTex && scriptTex) return `${baseTex}_{${scriptTex}}`;
+    return baseTex || scriptTex;
+  }
+
+  if (node.tagName === "MJX-MFRAC") {
+    const num =
+      node.querySelector<HTMLElement>(":scope > mjx-frac > mjx-num") ||
+      node.querySelector<HTMLElement>("mjx-num");
+    const den =
+      node.querySelector<HTMLElement>(":scope > mjx-frac > mjx-den") ||
+      node.querySelector<HTMLElement>("mjx-den");
+
+    const numTex = num ? extractMjxTex(num) : "";
+    const denTex = den ? extractMjxTex(den) : "";
+
+    if (numTex && denTex) {
+      return `\\frac{${numTex}}{${denTex}}`;
+    }
+
+    return numTex || denTex;
+  }
+
+  if (node.tagName === "MJX-C") {
+    return extractMjxChar(node);
+  }
+
+  let combined = "";
+  for (const child of Array.from(node.childNodes)) {
+    combined += extractMjxTex(child);
+  }
+  return combined;
+}
+
+function extractInteractiveMathJaxContent(
+  node: HTMLElement,
+  parts: string[],
+  images: ExtractResult["images"],
+  mathCountRef: { value: number },
+  unresolvedMathRef: { value: number },
+  config: WalkConfig,
+): boolean {
+  const renderInteractiveMathNode = (mathNode: Node): string => {
+    if (mathNode.nodeType === Node.TEXT_NODE) {
+      return (mathNode.textContent || "").trim();
+    }
+
+    if (!(mathNode instanceof HTMLElement)) return "";
+    if (mathNode.tagName === "MJX-ASSISTIVE-MML") return "";
+
+    if (mathNode.classList.contains("selectList")) {
+      return extractSelectListContent(mathNode, mathCountRef, unresolvedMathRef);
+    }
+
+    if (mathNode.tagName === "MJX-MFRAC") {
+      const numerator =
+        mathNode.querySelector<HTMLElement>(":scope > mjx-frac > mjx-num") ||
+        mathNode.querySelector<HTMLElement>("mjx-num");
+      const denominator =
+        mathNode.querySelector<HTMLElement>(":scope > mjx-frac > mjx-den") ||
+        mathNode.querySelector<HTMLElement>("mjx-den");
+
+      const numHtml = numerator
+        ? Array.from(numerator.childNodes)
+            .map((child) => renderInteractiveMathNode(child))
+            .join(" ")
+            .trim()
+        : "";
+      const denHtml = denominator
+        ? Array.from(denominator.childNodes)
+            .map((child) => renderInteractiveMathNode(child))
+            .join(" ")
+            .trim()
+        : "";
+
+      return `<table style="display:inline-table;vertical-align:middle;border-collapse:collapse;margin:0 0.12em;"><tr><td style="text-align:center;border-bottom:1px solid currentColor;padding:0 0.2em;">${numHtml || "&nbsp;"}</td></tr><tr><td style="text-align:center;padding:0 0.2em;">${denHtml || "&nbsp;"}</td></tr></table>`;
+    }
+
+    if (mathNode.querySelector(".selectList")) {
+      return Array.from(mathNode.childNodes)
+        .map((child) => renderInteractiveMathNode(child))
+        .filter((chunk) => chunk.length > 0)
+        .join(" ")
+        .trim();
+    }
+
+    const tex = extractMjxTex(mathNode);
+    if (tex) {
+      mathCountRef.value++;
+      return `\\(${tex}\\)`;
+    }
+
+    return Array.from(mathNode.childNodes)
+      .map((child) => renderInteractiveMathNode(child))
+      .filter((chunk) => chunk.length > 0)
+      .join(" ")
+      .trim();
+  };
+
+  const mathRoot =
+    node.querySelector<HTMLElement>(":scope > mjx-math") ||
+    node.querySelector<HTMLElement>("mjx-math");
+
+  if (!mathRoot) return false;
+
+  const mtable =
+    mathRoot.querySelector<HTMLElement>(":scope > mjx-mtable") ||
+    mathRoot.querySelector<HTMLElement>("mjx-mtable");
+
+  if (mtable) {
+    const mtrNodes =
+      Array.from(
+        mtable.querySelectorAll<HTMLElement>(
+          ":scope > mjx-table > mjx-itable > mjx-mtr",
+        ),
+      ) ||
+      [];
+
+    const topLevelRows =
+      mtrNodes.length > 0
+        ? mtrNodes
+        : Array.from(mtable.querySelectorAll<HTMLElement>(":scope > mjx-mtr"));
+
+    if (topLevelRows.length > 0) {
+      let html =
+        '<table style="display:inline-table;border-collapse:collapse;vertical-align:middle;">';
+
+      for (const mtr of topLevelRows) {
+        html += "<tr>";
+        const mtdNodes = Array.from(
+          mtr.querySelectorAll<HTMLElement>(":scope > mjx-mtd"),
+        );
+
+        for (const mtd of mtdNodes) {
+          const cellStyle = mtd.getAttribute("style") || "";
+          const cellHtml = Array.from(mtd.childNodes)
+            .map((child) => renderInteractiveMathNode(child))
+            .filter((chunk) => chunk.length > 0)
+            .join(" ")
+            .trim();
+
+          html += `<td${styleAttr(cellStyle)}>${cellHtml}</td>`;
+        }
+
+        html += "</tr>";
+      }
+
+      html += "</table>";
+      parts.push(html);
+      return true;
+    }
+  }
+
+  let inlineTex = "";
+  const flushInlineTex = () => {
+    const trimmed = inlineTex.trim();
+    if (!trimmed) return;
+    mathCountRef.value++;
+    parts.push(`\\(${trimmed}\\)`);
+    inlineTex = "";
+  };
+
+  for (const child of Array.from(mathRoot.childNodes)) {
+    if (
+      child instanceof HTMLElement &&
+      (child.classList.contains("selectList") ||
+        child.querySelector(".selectList"))
+    ) {
+      flushInlineTex();
+      walkNodes(child, parts, images, mathCountRef, unresolvedMathRef, config);
+      continue;
+    }
+
+    const tex = extractMjxTex(child);
+    if (tex) inlineTex += tex;
+  }
+
+  flushInlineTex();
+  return true;
 }
 
 function extractCellContent(
@@ -477,6 +701,35 @@ function walkNodes(
     node.classList.contains(MATHJAX.mjpage);
 
   if (isMathJax) {
+    const hasInteractiveSelectList =
+      node.querySelector(".selectListOptions .selectListOption, .selectList") !==
+      null;
+
+    if (hasInteractiveSelectList) {
+      const handledInteractive = extractInteractiveMathJaxContent(
+        node,
+        parts,
+        images,
+        mathCountRef,
+        unresolvedMathRef,
+        config,
+      );
+
+      if (!handledInteractive) {
+        for (const child of Array.from(node.childNodes)) {
+          walkNodes(
+            child,
+            parts,
+            images,
+            mathCountRef,
+            unresolvedMathRef,
+            config,
+          );
+        }
+      }
+      return;
+    }
+
     const source = getTexSource(node);
     if (source) {
       mathCountRef.value++;

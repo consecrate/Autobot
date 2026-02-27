@@ -2,6 +2,7 @@ import type { AutobotSettings } from "@/utils/settings";
 
 export interface CardElements {
   front: HTMLElement;
+  frontSupplement?: HTMLElement | null;
   back: HTMLElement;
   choices?: HTMLElement | null;
   graphic?: HTMLElement | null;

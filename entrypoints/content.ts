@@ -36,6 +36,8 @@ const inFlightStepInjections = new WeakSet<Element>();
 const STEP_RELEVANT_NODE_SELECTORS = [
   SELECTORS.example,
   SELECTORS.question,
+  SELECTORS.questionText,
+  SELECTORS.questionFront,
   SELECTORS.exampleBack,
   SELECTORS.questionBack,
   SELECTORS.continueButton,
@@ -580,15 +582,16 @@ async function injectAnkiButton(step: Element) {
     markerLookup,
     async () => {
       const settings = await getAllSettings();
-      const { front, back, choices, graphic } = getFrontBackElements(
+      const { front, frontSupplement, back, choices, graphic } =
+        getFrontBackElements(
         step,
         type,
-      );
+        );
       if (!front || !back) throw new Error("Elements not found");
 
       await runCardPipeline({
         marker,
-        elements: { front, back, choices, graphic },
+        elements: { front, frontSupplement, back, choices, graphic },
         settings,
         tags: ["mathacademy", lesson],
       });

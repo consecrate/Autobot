@@ -55,7 +55,7 @@ async function captureGraphicText(
 
 async function runTextMode(input: CardBuildInput): Promise<void> {
   const { marker, elements, settings, tags } = input;
-  const { front, back, choices, graphic } = elements;
+  const { front, frontSupplement, back, choices, graphic } = elements;
   const { deck, includeChoices, labelFormat, fixDarkMode } = settings;
   const timestamp = Date.now();
   const resolver = createMediaResolver({
@@ -70,6 +70,9 @@ async function runTextMode(input: CardBuildInput): Promise<void> {
   }
 
   const extractedFront = extractContent(front);
+  const extractedFrontSupplement = frontSupplement
+    ? extractContent(frontSupplement)
+    : undefined;
   const extractedBack = extractContent(back);
   const extractedChoices =
     includeChoices && choices
@@ -78,6 +81,7 @@ async function runTextMode(input: CardBuildInput): Promise<void> {
 
   const unresolvedMathTotal =
     extractedFront.unresolvedMathCount +
+    (extractedFrontSupplement?.unresolvedMathCount ?? 0) +
     extractedBack.unresolvedMathCount +
     (extractedChoices?.unresolvedMathCount ?? 0);
 
@@ -94,6 +98,17 @@ async function runTextMode(input: CardBuildInput): Promise<void> {
     result: extractedFront,
   });
   frontText += frontResolved.content;
+
+  if (extractedFrontSupplement) {
+    const frontSupplementResolved = await resolver.resolveExtractedContent({
+      content: extractedFrontSupplement.content,
+      result: extractedFrontSupplement,
+    });
+
+    if (frontSupplementResolved.content) {
+      frontText += `<br>${frontSupplementResolved.content}`;
+    }
+  }
 
   if (extractedChoices) {
     const choicesResolved = await resolver.resolveExtractedContent({
@@ -123,7 +138,7 @@ async function runTextMode(input: CardBuildInput): Promise<void> {
 
 async function runImageMode(input: CardBuildInput): Promise<void> {
   const { marker, elements, settings, tags } = input;
-  const { front, back, choices, graphic } = elements;
+  const { front, frontSupplement, back, choices, graphic } = elements;
   const { deck, includeChoices } = settings;
   const timestamp = Date.now();
   const resolver = createMediaResolver({
@@ -138,6 +153,11 @@ async function runImageMode(input: CardBuildInput): Promise<void> {
   }
 
   frontHtml += await captureAndStore(front, "front", resolver);
+
+  if (frontSupplement) {
+    frontHtml += "<br>" +
+      (await captureAndStore(frontSupplement, "front-supplement", resolver));
+  }
 
   if (includeChoices && choices) {
     const circles = choices.querySelectorAll(
